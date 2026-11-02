@@ -1,0 +1,14 @@
+*
+!Dockerfile
+!package.json
+!server.mjs
+!backend/
+!backend/**
+!dist/
+!dist/**
+!scripts/
+!scripts/**
+!test/
+!test/**
+!deploy/
+!deploy/entrypoint.sh

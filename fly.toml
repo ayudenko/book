@@ -1,0 +1,50 @@
+app = "book-ayudenko"
+primary_region = "fra"
+kill_signal = "SIGTERM"
+kill_timeout = "30s"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  HOST = "0.0.0.0"
+  PORT = "4000"
+  APP_ORIGIN = "https://book.ayudenko.by"
+  DATABASE_PATH = "/data/quiet-chapter.sqlite"
+  BACKUP_DIR = "/data/backups"
+  TRUST_FLY_PROXY = "true"
+
+[deploy]
+  strategy = "immediate"
+
+[http_service]
+  internal_port = 4000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 20
+    hard_limit = 40
+
+  [[http_service.checks]]
+    grace_period = "15s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    path = "/api/health"
+
+[mounts]
+  source = "book_data"
+  destination = "/data"
+  initial_size = "1GB"
+  snapshot_retention = 14
+  scheduled_snapshots = true
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory = "512mb"
