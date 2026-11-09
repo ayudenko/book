@@ -1,3 +1,4 @@
+import { sanitize, highlightColors } from './formatting.js';
 import { LibrarySync, apiRequest } from './sync.js';
 import { uid, words, snapshot, restore, createBook, toLibrary, archiveBook, deleteBook, emptyOutline, detachChapterOutline, moveOutlineItem } from './model.js';
 const $ = s => document.querySelector(s);
@@ -7,21 +8,6 @@ const icons = {
 const icon = name => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${icons[name] || icons.page}"/></svg>`;
 document.querySelectorAll('[data-icon]').forEach(el => el.innerHTML = icon(el.dataset.icon));
 const esc = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function sanitize(html) {
- const source = new DOMParser().parseFromString(html, 'text/html');
- const allowed = new Set(['P','BR','DIV','B','STRONG','I','EM','U','H2','H3','BLOCKQUOTE','MARK']);
- const walk = node => {
-  if (node.nodeType === 3) return document.createTextNode(node.textContent);
-  const frag = document.createDocumentFragment();
-  if (['SCRIPT','STYLE','IFRAME','OBJECT','SVG','MATH','IMG'].includes(node.nodeName)) return frag;
-  const out = allowed.has(node.nodeName) ? document.createElement(node.nodeName.toLowerCase()) : frag;
-  for (const child of node.childNodes) out.append(walk(child));
-  return out;
- };
- const out = document.createElement('div');
- for (const child of source.body.childNodes) out.append(walk(child));
- return out.innerHTML;
-}
 function plain(html) {
  const el = document.createElement('div'); el.innerHTML = sanitize(html).replace(/<br\s*\/?\s*>/gi, '\n').replace(/<\/(p|div|h2|h3|blockquote)>/gi, '\n');
  return el.textContent.trim();
@@ -138,7 +124,18 @@ $('#editor').addEventListener('paste', e => {e.preventDefault();const text = e.c
 $('#editor').addEventListener('drop', e => e.preventDefault());
 document.addEventListener('selectionchange', () => {const selection = window.getSelection();if (selection.rangeCount && $('#editor').contains(selection.anchorNode) && $('#editor').contains(selection.focusNode)) selectedRange = selection.getRangeAt(0).cloneRange();});
 function restoreSelection() {$('#editor').focus();if (selectedRange && $('#editor').contains(selectedRange.commonAncestorContainer)) { const s = window.getSelection();s.removeAllRanges();s.addRange(selectedRange); }}
+document.execCommand('defaultParagraphSeparator', false, 'p');
 document.querySelectorAll('[data-command]').forEach(b => {b.onmousedown=e=>e.preventDefault();b.onclick=()=>{restoreSelection();document.execCommand(b.dataset.command);onEdit();};});
+$('#text-highlight').onchange = e => {
+ const color = highlightColors[e.target.value] || (e.target.value === 'none' ? 'transparent' : null);
+ e.target.value = '';
+ if (!color) return;
+ if (!selectedRange || selectedRange.collapsed || !$('#editor').contains(selectedRange.commonAncestorContainer)) {toast('Сначала выделите текст, который нужно подсветить');return;}
+ restoreSelection();
+ document.execCommand('styleWithCSS', false, true);
+ try {document.execCommand('hiliteColor', false, color);} finally {document.execCommand('styleWithCSS', false, false);}
+ onEdit();
+};
 $('#block-format').onchange = e => {restoreSelection();document.execCommand('formatBlock',false,e.target.value);onEdit();};
 $('#undo').onmousedown = e => e.preventDefault();
 $('#undo').onclick = () => {restoreSelection();document.execCommand('undo');onEdit();};

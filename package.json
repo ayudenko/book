@@ -7,7 +7,7 @@
     "dev": "node server.mjs",
     "start": "node server.mjs",
     "test": "node --test",
-    "check": "node --check dist/app.js && node --check dist/model.js && node --check dist/sync.js && node --check server.mjs && node --check backend/app.mjs && node --check backend/store.mjs && node --check backend/validation.mjs && node --check scripts/backup.mjs && node --check backend/client-ip.mjs",
+    "check": "node --check dist/app.js && node --check dist/model.js && node --check dist/sync.js && node --check server.mjs && node --check backend/app.mjs && node --check backend/store.mjs && node --check backend/validation.mjs && node --check scripts/backup.mjs && node --check backend/client-ip.mjs && node --check dist/formatting.js",
     "db:backup": "node scripts/backup.mjs",
     "deploy": "fly deploy --remote-only --ha=false",
     "smoke": "node scripts/smoke.mjs"

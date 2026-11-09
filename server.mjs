@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { clientIp } from './backend/client-ip.mjs';
 import { createApp, errorResponse, MAX_BODY } from './backend/app.mjs';
 
-const files = { '/favicon.svg': ['favicon.svg', 'image/svg+xml'], '/': ['index.html', 'text/html'], '/index.html': ['index.html', 'text/html'], '/app.js': ['app.js', 'text/javascript'], '/model.js': ['model.js', 'text/javascript'], '/sync.js': ['sync.js', 'text/javascript'], '/styles.css': ['styles.css', 'text/css'] };
+const files = { '/formatting.js': ['formatting.js', 'text/javascript'], '/favicon.svg': ['favicon.svg', 'image/svg+xml'], '/': ['index.html', 'text/html'], '/index.html': ['index.html', 'text/html'], '/app.js': ['app.js', 'text/javascript'], '/model.js': ['model.js', 'text/javascript'], '/sync.js': ['sync.js', 'text/javascript'], '/styles.css': ['styles.css', 'text/css'] };
 const headers = {
   'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-cache', 'Referrer-Policy': 'same-origin',
   'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
