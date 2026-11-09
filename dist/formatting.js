@@ -10,6 +10,10 @@ export function safeHighlight(value) {
   }
   return null;
 }
+export function safeAlignment(value) {
+  const normalized = (value || '').trim().toLowerCase();
+  return ['left', 'center', 'right', 'justify'].includes(normalized) ? normalized : null;
+}
 export function sanitize(html, parser = new DOMParser()) {
   const source = parser.parseFromString(html, 'text/html');
   const allowed = new Set(['P','BR','DIV','B','STRONG','I','EM','U','S','STRIKE','DEL','H2','H3','BLOCKQUOTE','SPAN','MARK']);
@@ -20,6 +24,10 @@ export function sanitize(html, parser = new DOMParser()) {
     const tag = node.nodeName === 'MARK' ? 'span' : ['STRIKE','DEL'].includes(node.nodeName) ? 's' : node.nodeName.toLowerCase();
     const out = allowed.has(node.nodeName) ? source.createElement(tag) : frag;
     if (out.nodeType === 1) {
+      if (['P', 'DIV', 'H2', 'H3', 'BLOCKQUOTE'].includes(node.nodeName)) {
+        const alignment = safeAlignment(node.style?.textAlign) || safeAlignment(node.getAttribute('align'));
+        if (alignment) out.style.textAlign = alignment;
+      }
       const color = safeHighlight(node.style?.backgroundColor) || (node.nodeName === 'MARK' ? highlightColors.yellow : null);
       if (color) out.style.backgroundColor = color;
       const decorations = `${node.style?.textDecoration || ''} ${node.style?.textDecorationLine || ''}`.split(/\s+/).filter(value => ['line-through','underline'].includes(value));

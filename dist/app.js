@@ -3,6 +3,7 @@ import { LibrarySync, apiRequest } from './sync.js';
 import { uid, words, snapshot, restore, createBook, toLibrary, archiveBook, deleteBook, emptyOutline, detachChapterOutline, moveOutlineItem } from './model.js';
 const $ = s => document.querySelector(s);
 const icons = {
+ alignLeft:'M4 5h16M4 10h10M4 15h16M4 20h10', alignCenter:'M4 5h16M7 10h10M4 15h16M7 20h10', alignRight:'M4 5h16M10 10h10M4 15h16M10 20h10', alignJustify:'M4 5h16M4 10h16M4 15h16M4 20h16',
  plus:'M12 5v14M5 12h14', chevron:'m9 5 7 7-7 7', download:'M12 3v12m-4-4 4 4 4-4M5 16v4h14v-4', upload:'M12 16V4m-4 4 4-4 4 4M5 16v4h14v-4', check:'m5 12 4 4L19 6', focus:'M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5', menu:'M4 6h16M4 12h16M4 18h16', sun:'M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0', highlight:'m5 14 9-10 6 6-9 9-6-5Zm0 0-2 7 8-2M14 4l6 6', undo:'M4 10h10a6 6 0 0 1 0 12M4 10l5-5m-5 5 5 5', history:'M3 11a9 9 0 1 1 3 8M3 4v7h7m2-4v6l4 2', leaf:'M19 3C7 3 2 8 6 15s16 2 13-12ZM5 20l10-11', settings:'M4 6h16M4 18h16M8 3v6m8 6v6', close:'m6 6 12 12M6 18 18 6', edit:'m4 16-1 5 5-1L20 7l-4-4L4 16Zm10-11 4 4', page:'M6 3h8l4 4v14H6V3Zm8 0v5h4M9 12h6m-6 4h6'
 };
 const icon = name => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${icons[name] || icons.page}"/></svg>`;
