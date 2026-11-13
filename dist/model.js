@@ -19,7 +19,7 @@ export function validBackup(data) {
     Array.isArray(data.chapters) && data.chapters.length > 0 && data.chapters.length <= 500 &&
     new Set(data.chapters.map(c => c.id)).size === data.chapters.length &&
     data.chapters.every(c => typeof c.id === 'string' && typeof c.title === 'string' && typeof c.html === 'string' && Array.isArray(c.history) && c.history.every(h => typeof h.id === 'string' && typeof h.title === 'string' && typeof h.html === 'string' && typeof h.label === 'string' && !Number.isNaN(Date.parse(h.at)))) &&
-    validOutline(data.outline, data.chapters) && Array.isArray(data.notes) && data.notes.every(n => typeof n.id === 'string' && ['note','character','annotation','location'].includes(n.kind) && (n.kind !== 'location' || (typeof n.locationType === 'string' && n.locationType.trim().length > 0 && n.locationType.length <= 80)) && typeof n.title === 'string' && typeof n.body === 'string' && typeof n.quote === 'string' && (n.chapterId === null || typeof n.chapterId === 'string'));
+    validOutline(data.outline, data.chapters) && Array.isArray(data.notes) && data.notes.every(n => typeof n.id === 'string' && ['note','character','annotation','location'].includes(n.kind) && (n.kind !== 'location' || (typeof n.locationType === 'string' && n.locationType.trim().length > 0 && n.locationType.length <= 80)) && typeof n.title === 'string' && typeof n.body === 'string' && (n.html === undefined || (typeof n.html === 'string' && n.html.length <= 2_000_000)) && typeof n.quote === 'string' && (n.chapterId === null || typeof n.chapterId === 'string'));
 }
 export function initialState() {
   const chapters = [

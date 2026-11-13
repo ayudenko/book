@@ -144,3 +144,21 @@ test('Server persists both outline modes and rejects invalid chapter links witho
 test('Public health check confirms database availability without exposing manuscripts',async t=>{
  const s=setup(t);const response=await s.call('/api/health');assert.equal(response.status,200);assert.deepEqual(response.body,{status:'ok'});
 });
+
+test('Large rich notes survive server restart and backup round-trip alongside legacy notes', async t => {
+ const s=setup(t), user=await register(s), library=populated();
+ const body='Большой отрывок.\n'.repeat(20000);
+ const html='<h2>Замысел</h2><p style="text-align:center"><strong>Начало</strong> <s>черновик</s><span style="background-color:#f0e8ba">свет</span></p><p>'+body+'</p>';
+ library.books[0].notes.push({id:'long-note',kind:'note',title:'Большой отрывок',body,html,quote:'',chapterId:null});
+ assert.equal((await s.call('/api/library',{...user,method:'PUT',body:{revision:0,library}})).status,200);
+ s.restart();
+ const saved=(await s.call('/api/library',user)).body.library;
+ assert.deepEqual(JSON.parse(JSON.stringify(saved)).books[0].notes,library.books[0].notes);
+ for (const invalid of [42, 'x'.repeat(2_000_001)]) {
+  const changed=structuredClone(saved); changed.books[0].notes[1].html=invalid;
+  assert.equal((await s.call('/api/library',{...user,method:'PUT',body:{revision:1,library:changed}})).status,400);
+ }
+ const oversized=structuredClone(saved);oversized.books[0].notes[1].body='x'.repeat(1_000_001);
+ assert.equal((await s.call('/api/library',{...user,method:'PUT',body:{revision:1,library:oversized}})).status,400);
+ assert.deepEqual((await s.call('/api/library',user)).body.library,saved);
+});

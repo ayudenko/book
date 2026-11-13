@@ -20,6 +20,7 @@ let persistenceBlocked = false, libraryView = true, shelf = 'active', outlineVie
 function cleanLibrary(value) {
  const result = toLibrary(value);
  for (const book of result.books) {
+  for (const note of book.notes) if (note.html !== undefined) note.html = sanitize(note.html);
   for (const c of book.chapters) {c.html = sanitize(c.html);c.history.forEach(h => h.html = sanitize(h.html));}
   if (!book.chapters.some(c => c.id === book.activeId)) book.activeId = book.chapters[0].id;
  }
@@ -78,12 +79,15 @@ function renderPanel() {
   $('#panel-content').innerHTML = [...current().history].reverse().map(h => `<div class="history-item"><h3>${esc(h.label)}</h3><p>${new Date(h.at).toLocaleString('ru-RU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit',second:'2-digit'})} · ${words(plain(h.html))} слов</p><button data-version="${esc(h.id)}">Просмотреть и восстановить</button></div>`).join(''); return;
  }
  const notes = state.notes.filter(n => tab === 'characters' ? n.kind === 'character' : tab === 'geography' ? n.kind === 'location' : ['note','annotation'].includes(n.kind) && (!n.chapterId || n.chapterId === state.activeId));
- $('#panel-content').innerHTML = notes.length ? notes.map(n => `<article class="note-card ${n.kind}"><button class="icon-button edit-note" data-note="${esc(n.id)}" aria-label="Редактировать ${esc(n.title)}">${icon('edit')}</button><h3>${esc(n.title)}</h3>${n.quote ? `<blockquote>${esc(n.quote)}</blockquote>` : ''}<p>${esc(n.body)}</p><span class="note-tag">${n.kind === 'location' ? esc(n.locationType) : n.kind === 'character' ? 'ПЕРСОНАЖ' : n.kind === 'annotation' ? 'ПОМЕТКА К ЭТОЙ ГЛАВЕ' : 'ЗАМЕТКА К КНИГЕ'}</span></article>`).join('') : `<div class="empty-state">${tab === 'geography' ? 'Где разворачивается ваша история?<br>Нажмите +, чтобы описать первое место.' : 'Здесь есть место для новой идеи.<br>Нажмите +, чтобы её сохранить.'}</div>`;
+ $('#panel-content').innerHTML = notes.length ? notes.map(n => `<article class="note-card ${n.kind}"><button class="icon-button edit-note" data-note="${esc(n.id)}" aria-label="Редактировать ${esc(n.title)}">${icon('edit')}</button><h3>${esc(n.title)}</h3>${n.quote ? `<blockquote>${esc(n.quote)}</blockquote>` : ''}<div class="note-preview">${n.html !== undefined ? sanitize(n.html) : esc(n.body).replace(/\n/g, '<br>')}</div><span class="note-tag">${n.kind === 'location' ? esc(n.locationType) : n.kind === 'character' ? 'ПЕРСОНАЖ' : n.kind === 'annotation' ? 'ПОМЕТКА К ЭТОЙ ГЛАВЕ' : 'ЗАМЕТКА К КНИГЕ'}</span></article>`).join('') : `<div class="empty-state">${tab === 'geography' ? 'Где разворачивается ваша история?<br>Нажмите +, чтобы описать первое место.' : 'Здесь есть место для новой идеи.<br>Нажмите +, чтобы её сохранить.'}</div>`;
 }
+let disposeNoteEditor = null;
 function dialog(title, body, handler, submit = 'Сохранить') {
+ disposeNoteEditor?.(); disposeNoteEditor = null; $('#dialog').classList.remove('note-dialog');
  $('#dialog-title').textContent = title; $('#dialog-body').innerHTML = body; $('#dialog-submit').textContent = submit; dialogHandler = handler; $('#dialog').showModal();
 }
 $('#dialog-form').addEventListener('submit', e => {e.preventDefault(); if (dialogHandler() !== false) $('#dialog').close();});
+$('#dialog').addEventListener('close', () => {disposeNoteEditor?.();disposeNoteEditor = null;});
 $('#close-dialog').onclick = $('#cancel-dialog').onclick = () => $('#dialog').close();
 function noteDialog(existing, quote = '') {
  const kind = existing?.kind || (quote ? 'annotation' : tab === 'characters' ? 'character' : tab === 'geography' ? 'location' : 'note');
@@ -95,16 +99,26 @@ function noteDialog(existing, quote = '') {
   <input id="note-title" required maxlength="160" value="${esc(existing?.title || '')}" placeholder="${isLocation ? 'Например, город у моря' : kind === 'character' ? 'Кто живёт в вашей истории?' : 'О чём эта мысль?'}">
   ${isLocation ? `<label for="location-type">Тип объекта</label><input id="location-type" required maxlength="80" list="location-types" value="${esc(existing?.locationType || 'Место')}" placeholder="Выберите или введите свой тип"><datalist id="location-types">${['Город','Деревня','Страна','Регион','Остров','Гора','Река','Озеро','Море','Лес','Здание','Место'].map(t => `<option value="${t}"></option>`).join('')}</datalist>` : ''}
   <label for="note-body">${isLocation ? 'Описание места' : kind === 'character' ? 'Характер, история, мотивация' : 'Ваша заметка'}</label>
-  <textarea id="note-body" required ${isLocation ? 'placeholder="Расположение, природа, жители, история и роль в сюжете…"' : ''}>${esc(existing?.body || '')}</textarea>
+  <div class="note-writing-area"><div id="note-toolbar" class="editor-toolbar"></div><div id="note-body" class="editor" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Текст заметки" data-placeholder="Здесь есть место для большой истории…">${existing?.html !== undefined ? sanitize(existing.html) : esc(existing?.body || '').replace(/\n/g, '<br>')}</div></div><p id="note-word-count" aria-live="polite"></p>
   ${existing ? `<button type="button" class="danger" id="delete-note">${deleteLabel}</button>` : ''}`, () => {
-  const title = $('#note-title').value.trim(), body = $('#note-body').value.trim();
+  const title = $('#note-title').value.trim(), html = sanitize($('#note-body').innerHTML), body = plain(html);
+  if (body.length > 1_000_000 || html.length > 2_000_000) {toast('Заметка слишком большая: максимум 1 миллион знаков текста и 2 миллиона с форматированием');return false;}
   const locationType = isLocation ? $('#location-type').value.trim() : null;
   if (!title || !body || (isLocation && !locationType)) {toast('Заполните название, описание и тип объекта, если он указан');return false;}
-  const fields = {title, body, ...(isLocation ? {locationType} : {})};
+  const fields = {title, body, html, ...(isLocation ? {locationType} : {})};
   if (existing) Object.assign(existing, fields);
   else state.notes.unshift({id:uid(),kind,...fields,quote,chapterId:kind === 'annotation' ? state.activeId : null});
   const saved = persist(); renderPanel(); if (saved) toast(isLocation ? 'Место сохранено в географии книги' : 'Сохранено в вашем блокноте');
  });
+ $('#dialog').classList.add('note-dialog');
+ const toolbar = $('.writing-area .format-tools').cloneNode(true);
+ toolbar.querySelector('#annotate').remove();
+ toolbar.querySelectorAll('[id]').forEach(el => {el.dataset.control = el.id;el.removeAttribute('id');});
+ toolbar.querySelectorAll('button').forEach(el => el.type = 'button');
+ $('#note-toolbar').append(toolbar);
+ const updateNoteCount = () => {$('#note-word-count').textContent = `${fmt(words(plain($('#note-body').innerHTML)))} слов · Сохраните изменения кнопкой «Сохранить»`;};
+ disposeNoteEditor = bindRichEditor($('#note-body'), toolbar, updateNoteCount);
+ updateNoteCount();
  if (existing) $('#delete-note').onclick = () => { dialog(`${deleteLabel}?`,`<p>«${esc(existing.title)}» будет удалено из материалов книги.</p>`,() => {state.notes = state.notes.filter(n => n.id !== existing.id); persist(); renderPanel();},'Удалить'); };
 }
 $('#add-note').onclick = () => noteDialog();
@@ -120,26 +134,47 @@ document.querySelectorAll('[data-tab]').forEach(b => { b.onclick = () => {if (b.
 $('#chapters').onclick = e => { const b = e.target.closest('[data-chapter]'); if (!b) return;flush();state.activeId = b.dataset.chapter;persist();renderEditor();$('#sidebar').classList.remove('open'); };
 function addChapter() { dialog('Новая глава','<label for="new-title">Название</label><input id="new-title" required maxlength="200" placeholder="У каждой главы — своё начало">', () => {const title = $('#new-title').value.trim(); if (!title) return false;flush();const c = {id:uid(),title,html:'',history:[]};snapshot(c,'Начальная версия');state.chapters.push(c);state.activeId=c.id;persist();renderEditor();toast('Новая глава готова');}); }
 $('#add-chapter').onclick = $('#add-chapter-bottom').onclick = addChapter;
-$('#chapter-title').oninput = $('#editor').oninput = onEdit;
-$('#editor').addEventListener('paste', e => {e.preventDefault();const text = e.clipboardData.getData('text/plain');document.execCommand('insertText',false,text);onEdit();});
-$('#editor').addEventListener('drop', e => e.preventDefault());
-document.addEventListener('selectionchange', () => {const selection = window.getSelection();if (selection.rangeCount && $('#editor').contains(selection.anchorNode) && $('#editor').contains(selection.focusNode)) selectedRange = selection.getRangeAt(0).cloneRange();});
-function restoreSelection() {$('#editor').focus();if (selectedRange && $('#editor').contains(selectedRange.commonAncestorContainer)) { const s = window.getSelection();s.removeAllRanges();s.addRange(selectedRange); }}
+$('#chapter-title').oninput = onEdit;
+function bindRichEditor(editor, toolbar, changed, selectionChanged = () => {}) {
+ let range = null;
+ const controller = new AbortController(), options = {signal: controller.signal};
+ const control = name => toolbar.querySelector(`[data-control="${name}"], #${name}`);
+ document.addEventListener('selectionchange', () => {
+  const selection = window.getSelection();
+  if (selection.rangeCount && editor.contains(selection.anchorNode) && editor.contains(selection.focusNode)) {
+   range = selection.getRangeAt(0).cloneRange(); selectionChanged(range);
+  }
+ }, options);
+ const restoreRange = () => {
+  editor.focus();
+  if (range && editor.contains(range.commonAncestorContainer)) {
+   const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+  }
+ };
+ const command = (name, value) => {restoreRange();document.execCommand(name, false, value);changed();};
+ editor.addEventListener('input', changed, options);
+ editor.addEventListener('paste', e => {e.preventDefault();command('insertText', e.clipboardData.getData('text/plain'));}, options);
+ editor.addEventListener('drop', e => e.preventDefault(), options);
+ toolbar.querySelectorAll('[data-command]').forEach(button => {
+  button.onmousedown = e => e.preventDefault();
+  button.onclick = () => command(button.dataset.command);
+ });
+ control('block-format').onchange = e => command('formatBlock', e.target.value);
+ control('text-highlight').onchange = e => {
+  const color = highlightColors[e.target.value] || (e.target.value === 'none' ? 'transparent' : null);
+  e.target.value = '';
+  if (!color) return;
+  if (!range || range.collapsed || !editor.contains(range.commonAncestorContainer)) {toast('Сначала выделите текст, который нужно подсветить');return;}
+  restoreRange(); document.execCommand('styleWithCSS', false, true);
+  try {document.execCommand('hiliteColor', false, color);} finally {document.execCommand('styleWithCSS', false, false);}
+  changed();
+ };
+ control('undo').onmousedown = e => e.preventDefault();
+ control('undo').onclick = () => command('undo');
+ return () => controller.abort();
+}
 document.execCommand('defaultParagraphSeparator', false, 'p');
-document.querySelectorAll('[data-command]').forEach(b => {b.onmousedown=e=>e.preventDefault();b.onclick=()=>{restoreSelection();document.execCommand(b.dataset.command);onEdit();};});
-$('#text-highlight').onchange = e => {
- const color = highlightColors[e.target.value] || (e.target.value === 'none' ? 'transparent' : null);
- e.target.value = '';
- if (!color) return;
- if (!selectedRange || selectedRange.collapsed || !$('#editor').contains(selectedRange.commonAncestorContainer)) {toast('Сначала выделите текст, который нужно подсветить');return;}
- restoreSelection();
- document.execCommand('styleWithCSS', false, true);
- try {document.execCommand('hiliteColor', false, color);} finally {document.execCommand('styleWithCSS', false, false);}
- onEdit();
-};
-$('#block-format').onchange = e => {restoreSelection();document.execCommand('formatBlock',false,e.target.value);onEdit();};
-$('#undo').onmousedown = e => e.preventDefault();
-$('#undo').onclick = () => {restoreSelection();document.execCommand('undo');onEdit();};
+bindRichEditor($('#editor'), $('.writing-area .format-tools'), onEdit, range => {selectedRange = range;});
 $('#annotate').onmousedown = e => e.preventDefault();
 $('#annotate').onclick = () => {const quote = selectedRange?.toString().trim();if (!quote) {toast('Сначала выделите в тексте фрагмент для пометки');return;} tab='notes';renderPanel();noteDialog(null,quote);};
 $('#save-version').onclick = () => {capture();const changed=snapshot(current(),'Сохранено автором');const saved=persist();if(tab==='history')renderPanel();if(saved)toast(changed?'Версия сохранена в истории':'Эта версия уже есть в истории');};

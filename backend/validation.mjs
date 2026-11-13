@@ -10,7 +10,7 @@ export function validateLibrary(value) {
     book.chapters.every(c => id(c.id) && string(c.title, 200) && string(c.html, 2_000_000) &&
       c.history.length <= 60 && new Set(c.history.map(h => h.id)).size === c.history.length &&
       c.history.every(h => id(h.id) && string(h.title, 200) && string(h.html, 2_000_000) && string(h.label, 200))) &&
-    book.notes.every(n => id(n.id) && string(n.title, 160) && string(n.body, 100_000) && string(n.quote, 100_000) &&
+    book.notes.every(n => id(n.id) && string(n.title, 160) && string(n.body, 1_000_000) && (n.html === undefined || string(n.html, 2_000_000)) && string(n.quote, 100_000) &&
       (n.chapterId === null || book.chapters.some(c => c.id === n.chapterId))));
 }
 export function normalizeLibrary(value) {
@@ -19,7 +19,7 @@ export function normalizeLibrary(value) {
     ...(b.outline ? {outline: {mode: b.outline.mode, summary: b.outline.summary, items: b.outline.items.map(i => ({id:i.id,title:i.title,body:i.body,chapterId:i.chapterId}))}} : {}),
     chapters: b.chapters.map(c => ({id: c.id, title: c.title, html: c.html,
       history: c.history.map(h => ({id: h.id, at: h.at, title: h.title, html: h.html, label: h.label}))})),
-    notes: b.notes.map(n => ({id: n.id, kind: n.kind, title: n.title, body: n.body, quote: n.quote,
+    notes: b.notes.map(n => ({id: n.id, kind: n.kind, title: n.title, body: n.body, quote: n.quote, ...(n.html !== undefined ? {html: n.html} : {}),
       chapterId: n.chapterId, ...(n.kind === 'location' ? {locationType: n.locationType} : {})}))
   }))};
 }
