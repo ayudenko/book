@@ -19,7 +19,7 @@ export function validBackup(data) {
     Array.isArray(data.chapters) && data.chapters.length > 0 && data.chapters.length <= 500 &&
     new Set(data.chapters.map(c => c.id)).size === data.chapters.length &&
     data.chapters.every(c => typeof c.id === 'string' && typeof c.title === 'string' && typeof c.html === 'string' && Array.isArray(c.history) && c.history.every(h => typeof h.id === 'string' && typeof h.title === 'string' && typeof h.html === 'string' && typeof h.label === 'string' && !Number.isNaN(Date.parse(h.at)))) &&
-    validOutline(data.outline, data.chapters) && Array.isArray(data.notes) && data.notes.every(n => typeof n.id === 'string' && ['note','character','annotation','location'].includes(n.kind) && (n.kind !== 'location' || (typeof n.locationType === 'string' && n.locationType.trim().length > 0 && n.locationType.length <= 80)) && typeof n.title === 'string' && typeof n.body === 'string' && (n.html === undefined || (typeof n.html === 'string' && n.html.length <= 2_000_000)) && typeof n.quote === 'string' && (n.chapterId === null || typeof n.chapterId === 'string'));
+    validSections(data.sections, data.chapters) && validOutline(data.outline, data.chapters) && Array.isArray(data.notes) && data.notes.every(n => typeof n.id === 'string' && ['note','character','annotation','location'].includes(n.kind) && (n.kind !== 'location' || (typeof n.locationType === 'string' && n.locationType.trim().length > 0 && n.locationType.length <= 80)) && validTags(n.tags) && typeof n.title === 'string' && typeof n.body === 'string' && (n.html === undefined || (typeof n.html === 'string' && n.html.length <= 2_000_000)) && typeof n.quote === 'string' && (n.chapterId === null || typeof n.chapterId === 'string'));
 }
 export function initialState() {
   const chapters = [
@@ -89,4 +89,52 @@ export function moveOutlineItem(outline, id, direction) {
   if (index < 0 || target < 0 || target >= free.length) return;
   const a = outline.items.indexOf(free[index]), b = outline.items.indexOf(free[target]);
   [outline.items[a], outline.items[b]] = [outline.items[b], outline.items[a]];
+}
+
+export function normalizeTags(tags) {
+  return [...new Set(tags.map(tag => tag.trim().replace(/\s+/g, ' ').toLowerCase()).filter(Boolean))];
+}
+export function validTags(tags) {
+  return tags === undefined || (Array.isArray(tags) && tags.length <= 20 && tags.every(tag => typeof tag === 'string' && tag.trim().length > 0 && tag.length <= 40 && !tag.includes(',')));
+}
+export function tagCounts(notes) {
+  const counts = new Map();
+  for (const note of notes) for (const tag of normalizeTags(note.tags || [])) counts.set(tag, (counts.get(tag) || 0) + 1);
+  return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'ru'));
+}
+export function filterNotesByTag(notes, tag) {
+  return tag ? notes.filter(note => normalizeTags(note.tags || []).includes(tag)) : notes;
+}
+
+export function validSections(sections, chapters) {
+  if (sections !== undefined && (!Array.isArray(sections) || sections.length > 100)) return false;
+  const ids = new Set();
+  for (const section of sections || []) {
+    if (!section || typeof section.id !== 'string' || !section.id || section.id.length > 128 || ids.has(section.id) || typeof section.title !== 'string' || !section.title.trim() || section.title.length > 200) return false;
+    ids.add(section.id);
+  }
+  return chapters.every(chapter => chapter.sectionId == null || ids.has(chapter.sectionId));
+}
+export function chapterGroups(book) {
+  return [{id:null,title:'Без части'}, ...(book.sections || [])].map(section => ({...section, chapters:book.chapters.filter(chapter => (chapter.sectionId ?? null) === section.id)}));
+}
+export function orderChapters(book) {
+  book.chapters = chapterGroups(book).flatMap(group => group.chapters);
+}
+export function assignChapterSection(book, chapterId, sectionId) {
+  if (sectionId !== null && !(book.sections || []).some(section => section.id === sectionId)) throw new Error('Section not found');
+  const chapter = book.chapters.find(chapter => chapter.id === chapterId);
+  if (!chapter) throw new Error('Chapter not found');
+  chapter.sectionId = sectionId; orderChapters(book);
+}
+export function removeSection(book, sectionId) {
+  book.sections = (book.sections || []).filter(section => section.id !== sectionId);
+  for (const chapter of book.chapters) if (chapter.sectionId === sectionId) chapter.sectionId = null;
+  orderChapters(book);
+}
+export function moveSection(book, sectionId, direction) {
+  const sections = book.sections || [], index = sections.findIndex(section => section.id === sectionId), target = index + direction;
+  if (index < 0 || target < 0 || target >= sections.length) return;
+  [sections[index], sections[target]] = [sections[target], sections[index]];
+  orderChapters(book);
 }

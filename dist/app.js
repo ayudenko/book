@@ -1,6 +1,6 @@
 import { sanitize, highlightColors } from './formatting.js';
 import { LibrarySync, apiRequest } from './sync.js';
-import { uid, words, snapshot, restore, createBook, toLibrary, archiveBook, deleteBook, emptyOutline, detachChapterOutline, moveOutlineItem } from './model.js';
+import { chapterGroups, orderChapters, assignChapterSection, removeSection, moveSection, normalizeTags, validTags, tagCounts, filterNotesByTag, uid, words, snapshot, restore, createBook, toLibrary, archiveBook, deleteBook, emptyOutline, detachChapterOutline, moveOutlineItem } from './model.js';
 const $ = s => document.querySelector(s);
 const icons = {
  alignLeft:'M4 5h16M4 10h10M4 15h16M4 20h10', alignCenter:'M4 5h16M7 10h10M4 15h16M7 20h10', alignRight:'M4 5h16M10 10h10M4 15h16M10 20h10', alignJustify:'M4 5h16M4 10h16M4 15h16M4 20h16',
@@ -20,12 +20,14 @@ let persistenceBlocked = false, libraryView = true, shelf = 'active', outlineVie
 function cleanLibrary(value) {
  const result = toLibrary(value);
  for (const book of result.books) {
+  orderChapters(book);
   for (const note of book.notes) if (note.html !== undefined) note.html = sanitize(note.html);
   for (const c of book.chapters) {c.html = sanitize(c.html);c.history.forEach(h => h.html = sanitize(h.html));}
   if (!book.chapters.some(c => c.id === book.activeId)) book.activeId = book.chapters[0].id;
  }
  return result;
 }
+let tagFilter = '', tagScope = '';
 let tab = 'notes', timer, toastTimer, dialogHandler, selectedRange = null;
 const current = () => state?.chapters.find(c => c.id === state.activeId);
 const fmt = n => new Intl.NumberFormat('ru-RU').format(n);
@@ -60,9 +62,31 @@ function updateCounts() {
  $('#goal-caption').textContent = progress >= 100 ? 'Цель достигнута. Ваша история стала книгой!' : `${Math.round(progress * 10) / 10}% пути пройдено. Каждое слово имеет значение.`;
  $('#breadcrumb-chapter').textContent = current().title || 'Без названия';
 }
-function renderChapters() {
- $('#chapters').innerHTML = state.chapters.map((c, i) => `<button class="chapter-item ${c.id === state.activeId ? 'active' : ''}" data-chapter="${esc(c.id)}" ${c.id === state.activeId ? 'aria-current="page"' : ''}><span class="chapter-number">${String(i+1).padStart(2,'0')}</span><span class="chapter-label">${esc(c.title || 'Без названия')}</span>${icon('page')}</button>`).join('');
+function sectionOptions(selected = null) {
+ return `<option value="">Без части</option>${(state.sections || []).map(section => `<option value="${esc(section.id)}" ${section.id === selected ? 'selected' : ''}>${esc(section.title)}</option>`).join('')}`;
 }
+function renderChapters() {
+ let index = 0;
+ $('#chapters').innerHTML = chapterGroups(state).map(group => {
+  const heading = group.id ? `<div class="section-heading"><strong>${esc(group.title)}</strong><button class="icon-button" data-edit-section="${esc(group.id)}" aria-label="Настройки части ${esc(group.title)}">${icon('edit')}</button></div>` : (state.sections?.length && group.chapters.length ? '<div class="section-heading">Без части</div>' : '');
+  return heading + group.chapters.map(c => `<button class="chapter-item ${c.id === state.activeId ? 'active' : ''}" data-chapter="${esc(c.id)}" ${c.id === state.activeId ? 'aria-current="page"' : ''}><span class="chapter-number">${String(++index).padStart(2,'0')}</span><span class="chapter-label">${esc(c.title || 'Без названия')}</span>${icon('page')}</button>`).join('');
+ }).join('');
+ $('#chapter-section').innerHTML = sectionOptions(current()?.sectionId);
+}
+function sectionDialog(existing) {
+ dialog(existing ? 'Настройки части' : 'Новая часть', `<label for="section-title">Название части</label><input id="section-title" required maxlength="200" value="${esc(existing?.title || '')}" placeholder="Часть I. Начало">${existing ? `<div class="section-actions"><button type="button" class="button" id="section-up" ${state.sections.indexOf(existing) === 0 ? 'disabled' : ''}>Выше</button><button type="button" class="button" id="section-down" ${state.sections.indexOf(existing) === state.sections.length-1 ? 'disabled' : ''}>Ниже</button></div><button type="button" class="danger" id="delete-section">Удалить часть, сохранив главы</button>` : ''}`, () => {
+  const title = $('#section-title').value.trim(); if (!title) return false;
+  if (existing) existing.title = title;
+  else {state.sections ??= [];if (state.sections.length >= 100) {toast('Можно создать до 100 частей');return false;}state.sections.push({id:uid(),title});}
+  persist();renderChapters();if(outlineView)renderOutline();
+ });
+ if (existing) {
+  for (const [id, direction] of [['section-up',-1],['section-down',1]]) $('#'+id).onclick = () => {flush();moveSection(state,existing.id,direction);persist();if(outlineView){renderChapters();renderOutline();}else renderEditor();$('#dialog').close();};
+  $('#delete-section').onclick = () => dialog('Удалить часть?', '<p>Все её главы и их тексты сохранятся в группе «Без части».</p>', () => {flush();removeSection(state,existing.id);persist();if(outlineView){renderChapters();renderOutline();}else renderEditor();}, 'Удалить часть');
+ }
+}
+$('#add-section').onclick = () => sectionDialog();
+$('#chapter-section').onchange = e => {flush();assignChapterSection(state,state.activeId,e.target.value || null);persist();renderEditor();};
 function renderBook() { $('#book-name').textContent = state.title; $('#cover-title').textContent = state.title; document.title = `${state.title} — Тихая глава`; }
 function renderEditor() {
  outlineView=false;$('#outline-panel').hidden=true;$('#manuscript-panel').hidden=false;
@@ -71,6 +95,9 @@ function renderEditor() {
  selectedRange = null; renderChapters(); updateCounts(); renderPanel();
 }
 function renderPanel() {
+ const scope = `${state.id}:${state.activeId}:${tab}`;
+ if (tagScope !== scope) {tagFilter = '';tagScope = scope;}
+ $('#tag-cloud').hidden = tab === 'history';
  document.querySelectorAll('[data-tab]').forEach(b => {b.setAttribute('aria-selected', b.dataset.tab === tab); b.tabIndex = b.dataset.tab === tab ? 0 : -1;});
  const info = {notes:['Под рукой','Идеи, которые важно не потерять'],characters:['Знакомые лица','Характеры, мотивы и маленькие детали'],geography:['Места вашей истории','Города, страны и неизведанные земли'],history:['История главы','До 60 версий · после паузы в наборе']}[tab];
  $('#panel-title').textContent = info[0]; $('#panel-description').textContent = info[1];
@@ -78,8 +105,12 @@ function renderPanel() {
  if (tab === 'history') {
   $('#panel-content').innerHTML = [...current().history].reverse().map(h => `<div class="history-item"><h3>${esc(h.label)}</h3><p>${new Date(h.at).toLocaleString('ru-RU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit',second:'2-digit'})} · ${words(plain(h.html))} слов</p><button data-version="${esc(h.id)}">Просмотреть и восстановить</button></div>`).join(''); return;
  }
- const notes = state.notes.filter(n => tab === 'characters' ? n.kind === 'character' : tab === 'geography' ? n.kind === 'location' : ['note','annotation'].includes(n.kind) && (!n.chapterId || n.chapterId === state.activeId));
- $('#panel-content').innerHTML = notes.length ? notes.map(n => `<article class="note-card ${n.kind}"><button class="icon-button edit-note" data-note="${esc(n.id)}" aria-label="Редактировать ${esc(n.title)}">${icon('edit')}</button><h3>${esc(n.title)}</h3>${n.quote ? `<blockquote>${esc(n.quote)}</blockquote>` : ''}<div class="note-preview">${n.html !== undefined ? sanitize(n.html) : esc(n.body).replace(/\n/g, '<br>')}</div><span class="note-tag">${n.kind === 'location' ? esc(n.locationType) : n.kind === 'character' ? 'ПЕРСОНАЖ' : n.kind === 'annotation' ? 'ПОМЕТКА К ЭТОЙ ГЛАВЕ' : 'ЗАМЕТКА К КНИГЕ'}</span></article>`).join('') : `<div class="empty-state">${tab === 'geography' ? 'Где разворачивается ваша история?<br>Нажмите +, чтобы описать первое место.' : 'Здесь есть место для новой идеи.<br>Нажмите +, чтобы её сохранить.'}</div>`;
+ const candidates = state.notes.filter(n => tab === 'characters' ? n.kind === 'character' : tab === 'geography' ? n.kind === 'location' : ['note','annotation'].includes(n.kind) && (!n.chapterId || n.chapterId === state.activeId));
+ const counts = tagCounts(candidates);
+ if (tagFilter && !counts.some(([tag]) => tag === tagFilter)) tagFilter = '';
+ const notes = filterNotesByTag(candidates, tagFilter);
+ $('#tag-cloud').innerHTML = counts.length ? `<div class="tag-cloud-label">Теги · ${notes.length} из ${candidates.length}</div><div class="tag-list"><button type="button" data-filter-tag="" aria-pressed="${!tagFilter}">Все</button>${counts.map(([tag, count]) => `<button type="button" data-filter-tag="${esc(tag)}" aria-pressed="${tagFilter === tag}">${esc(tag)} <span>${count}</span></button>`).join('')}</div>` : '';
+ $('#panel-content').innerHTML = notes.length ? notes.map(n => `<article class="note-card ${n.kind}"><button class="icon-button edit-note" data-note="${esc(n.id)}" aria-label="Редактировать ${esc(n.title)}">${icon('edit')}</button><h3>${esc(n.title)}</h3>${n.quote ? `<blockquote>${esc(n.quote)}</blockquote>` : ''}<div class="note-preview">${n.html !== undefined ? sanitize(n.html) : esc(n.body).replace(/\n/g, '<br>')}</div><div class="tag-list note-tags">${normalizeTags(n.tags || []).map(tag => `<button type="button" data-filter-tag="${esc(tag)}" aria-pressed="${tagFilter === tag}">${esc(tag)}</button>`).join('')}</div><span class="note-tag">${n.kind === 'location' ? esc(n.locationType) : n.kind === 'character' ? 'ПЕРСОНАЖ' : n.kind === 'annotation' ? 'ПОМЕТКА К ЭТОЙ ГЛАВЕ' : 'ЗАМЕТКА К КНИГЕ'}</span></article>`).join('') : `<div class="empty-state">${tab === 'geography' ? 'Где разворачивается ваша история?<br>Нажмите +, чтобы описать первое место.' : 'Здесь есть место для новой идеи.<br>Нажмите +, чтобы её сохранить.'}</div>`;
 }
 let disposeNoteEditor = null;
 function dialog(title, body, handler, submit = 'Сохранить') {
@@ -98,6 +129,7 @@ function noteDialog(existing, quote = '') {
   <label for="note-title">${kind === 'character' ? 'Имя' : 'Название'}</label>
   <input id="note-title" required maxlength="160" value="${esc(existing?.title || '')}" placeholder="${isLocation ? 'Например, город у моря' : kind === 'character' ? 'Кто живёт в вашей истории?' : 'О чём эта мысль?'}">
   ${isLocation ? `<label for="location-type">Тип объекта</label><input id="location-type" required maxlength="80" list="location-types" value="${esc(existing?.locationType || 'Место')}" placeholder="Выберите или введите свой тип"><datalist id="location-types">${['Город','Деревня','Страна','Регион','Остров','Гора','Река','Озеро','Море','Лес','Здание','Место'].map(t => `<option value="${t}"></option>`).join('')}</datalist>` : ''}
+  <label for="note-tags">Теги через запятую</label><input id="note-tags" maxlength="1000" aria-describedby="note-tags-help" value="${esc(normalizeTags(existing?.tags || []).join(', '))}" placeholder="Диалоги, сюжет, идеи"><p id="note-tags-help">До 20 тегов, каждый — до 40 символов. Регистр не учитывается.</p>
   <label for="note-body">${isLocation ? 'Описание места' : kind === 'character' ? 'Характер, история, мотивация' : 'Ваша заметка'}</label>
   <div class="note-writing-area"><div id="note-toolbar" class="editor-toolbar"></div><div id="note-body" class="editor" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Текст заметки" data-placeholder="Здесь есть место для большой истории…">${existing?.html !== undefined ? sanitize(existing.html) : esc(existing?.body || '').replace(/\n/g, '<br>')}</div></div><p id="note-word-count" aria-live="polite"></p>
   ${existing ? `<button type="button" class="danger" id="delete-note">${deleteLabel}</button>` : ''}`, () => {
@@ -105,7 +137,9 @@ function noteDialog(existing, quote = '') {
   if (body.length > 1_000_000 || html.length > 2_000_000) {toast('Заметка слишком большая: максимум 1 миллион знаков текста и 2 миллиона с форматированием');return false;}
   const locationType = isLocation ? $('#location-type').value.trim() : null;
   if (!title || !body || (isLocation && !locationType)) {toast('Заполните название, описание и тип объекта, если он указан');return false;}
-  const fields = {title, body, html, ...(isLocation ? {locationType} : {})};
+  const tags = normalizeTags($('#note-tags').value.split(','));
+  if (!validTags(tags)) {toast('Добавьте не больше 20 тегов длиной до 40 символов каждый');return false;}
+  const fields = {title, body, html, tags, ...(isLocation ? {locationType} : {})};
   if (existing) Object.assign(existing, fields);
   else state.notes.unshift({id:uid(),kind,...fields,quote,chapterId:kind === 'annotation' ? state.activeId : null});
   const saved = persist(); renderPanel(); if (saved) toast(isLocation ? 'Место сохранено в географии книги' : 'Сохранено в вашем блокноте');
@@ -122,7 +156,9 @@ function noteDialog(existing, quote = '') {
  if (existing) $('#delete-note').onclick = () => { dialog(`${deleteLabel}?`,`<p>«${esc(existing.title)}» будет удалено из материалов книги.</p>`,() => {state.notes = state.notes.filter(n => n.id !== existing.id); persist(); renderPanel();},'Удалить'); };
 }
 $('#add-note').onclick = () => noteDialog();
+$('#tag-cloud').onclick = e => {const button = e.target.closest('[data-filter-tag]');if (button) {tagFilter = button.dataset.filterTag;renderPanel();}};
 $('#panel-content').onclick = e => {
+ const tagButton = e.target.closest('[data-filter-tag]');if (tagButton) {tagFilter = tagButton.dataset.filterTag;renderPanel();return;}
  const note = e.target.closest('[data-note]'); if (note) noteDialog(state.notes.find(n => n.id === note.dataset.note));
  const version = e.target.closest('[data-version]');
  if (version) {
@@ -131,8 +167,8 @@ $('#panel-content').onclick = e => {
  }
 };
 document.querySelectorAll('[data-tab]').forEach(b => { b.onclick = () => {if (b.dataset.tab === 'history') flush();tab = b.dataset.tab;renderPanel();}; b.onkeydown = e => {if (!['ArrowLeft','ArrowRight'].includes(e.key)) return; e.preventDefault(); const tabs = [...document.querySelectorAll('[data-tab]')]; const next = tabs[(tabs.indexOf(b)+(e.key==='ArrowRight'?1:tabs.length-1))%tabs.length]; next.click(); next.focus();}; });
-$('#chapters').onclick = e => { const b = e.target.closest('[data-chapter]'); if (!b) return;flush();state.activeId = b.dataset.chapter;persist();renderEditor();$('#sidebar').classList.remove('open'); };
-function addChapter() { dialog('Новая глава','<label for="new-title">Название</label><input id="new-title" required maxlength="200" placeholder="У каждой главы — своё начало">', () => {const title = $('#new-title').value.trim(); if (!title) return false;flush();const c = {id:uid(),title,html:'',history:[]};snapshot(c,'Начальная версия');state.chapters.push(c);state.activeId=c.id;persist();renderEditor();toast('Новая глава готова');}); }
+$('#chapters').onclick = e => {const section = e.target.closest('[data-edit-section]');if(section){sectionDialog(state.sections.find(s => s.id === section.dataset.editSection));return;} const b = e.target.closest('[data-chapter]'); if (!b) return;flush();state.activeId = b.dataset.chapter;persist();renderEditor();$('#sidebar').classList.remove('open'); };
+function addChapter() { dialog('Новая глава','<label for="new-title">Название</label><input id="new-title" required maxlength="200" placeholder="У каждой главы — своё начало"><label for="new-chapter-section">Часть книги</label><select id="new-chapter-section">'+sectionOptions(current()?.sectionId)+'</select>', () => {const title = $('#new-title').value.trim(); if (!title) return false;flush();const c = {id:uid(),title,html:'',history:[],sectionId:$('#new-chapter-section').value || null};snapshot(c,'Начальная версия');state.chapters.push(c);orderChapters(state);state.activeId=c.id;persist();renderEditor();toast('Новая глава готова');}); }
 $('#add-chapter').onclick = $('#add-chapter-bottom').onclick = addChapter;
 $('#chapter-title').oninput = onEdit;
 function bindRichEditor(editor, toolbar, changed, selectionChanged = () => {}) {
@@ -187,7 +223,7 @@ $('#book-settings').onclick = () => dialog('Настройки рукописи'
 $('#dialog-body').addEventListener('click',e=>{if(e.target.id==='delete-chapter'){const c=current();dialog('Удалить главу?',`<p>Будут удалены глава «${esc(c.title)}», её история и пометки. План главы сохранится в разделе «Без глав». Перед удалением можно скачать резервную копию всей книги.</p>`,()=>{clearTimeout(timer);detachChapterOutline(state,c.id);state.chapters=state.chapters.filter(x=>x.id!==c.id);state.notes=state.notes.filter(n=>n.chapterId!==c.id);state.activeId=state.chapters[0].id;persist();renderEditor();},'Удалить главу');}});
 function download(text,filename,type) {const url=URL.createObjectURL(new Blob([text],{type}));const a=document.createElement('a');a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 const filename = () => state.title.replace(/[\\/:*?"<>|]/g,'_').slice(0,100) || 'Рукопись';
-$('#export').onclick=()=>{flush();download(`${state.title}\n\n${state.chapters.map((c,i)=>`Глава ${i+1}. ${c.title}\n\n${plain(c.html)}`).join('\n\n————————————————\n\n')}`,`${filename()}.txt`,'text/plain;charset=utf-8');toast('Рукопись экспортирована в TXT');};
+$('#export').onclick=()=>{flush();download(`${state.title}\n\n${state.chapters.map((c,i)=>`${c.sectionId && (i === 0 || state.chapters[i-1].sectionId !== c.sectionId) ? state.sections.find(s=>s.id===c.sectionId).title+'\n\n' : ''}Глава ${i+1}. ${c.title}\n\n${plain(c.html)}`).join('\n\n————————————————\n\n')}`,`${filename()}.txt`,'text/plain;charset=utf-8');toast('Рукопись экспортирована в TXT');};
 $('#backup').onclick=()=>{flush();download(JSON.stringify(state,null,2),`${filename()} — копия.json`,'application/json');toast('Копия содержит главы, заметки и историю');};
 $('#import').onclick=$('#library-import').onclick=()=>$('#import-file').click();
 $('#import-file').onchange=async e=>{
@@ -438,7 +474,7 @@ function renderOutline() {
  } else {
   $('#outline-items').innerHTML=state.chapters.map((chapter,index)=>{
    const item=outline.items.find(i=>i.chapterId===chapter.id);
-   return `<article class="outline-item" data-outline-chapter="${esc(chapter.id)}"><div class="outline-item-heading"><div><span class="eyebrow">ГЛАВА ${index+1}</span><h3>${esc(chapter.title||'Без названия')}</h3></div><button class="button quiet" data-outline-action="write">К тексту</button></div><label for="chapter-plan-${index}">План главы</label><textarea id="chapter-plan-${index}" ${!item && outline.items.length>=1000?'disabled title="Достигнут лимит 1000 пунктов плана"':''} data-outline-field="body" maxlength="100000" placeholder="Основные события, цель главы и чем она заканчивается…">${esc(item?.body||'')}</textarea></article>`;
+   return `<article class="outline-item" data-outline-chapter="${esc(chapter.id)}"><div class="outline-item-heading"><div><span class="eyebrow">${esc(state.sections?.find(s=>s.id===chapter.sectionId)?.title || '')} · ГЛАВА ${index+1}</span><h3>${esc(chapter.title||'Без названия')}</h3></div><button class="button quiet" data-outline-action="write">К тексту</button></div><label for="chapter-plan-${index}">План главы</label><textarea id="chapter-plan-${index}" ${!item && outline.items.length>=1000?'disabled title="Достигнут лимит 1000 пунктов плана"':''} data-outline-field="body" maxlength="100000" placeholder="Основные события, цель главы и чем она заканчивается…">${esc(item?.body||'')}</textarea></article>`;
   }).join('');
  }
 }

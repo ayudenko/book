@@ -162,3 +162,27 @@ test('Large rich notes survive server restart and backup round-trip alongside le
  assert.equal((await s.call('/api/library',{...user,method:'PUT',body:{revision:1,library:oversized}})).status,400);
  assert.deepEqual((await s.call('/api/library',user)).body.library,saved);
 });
+
+test('Note tags survive persistence and invalid tag updates cannot overwrite the library', async t => {
+ const s=setup(t), user=await register(s), library=populated();
+ library.books[0].notes[0].tags=[' Город ', 'ГОРОД', 'локации'];
+ assert.equal((await s.call('/api/library',{...user,method:'PUT',body:{revision:0,library}})).status,200);
+ s.restart();
+ const saved=(await s.call('/api/library',user)).body.library;
+ assert.deepEqual(saved.books[0].notes[0].tags,['город','локации']);
+ for (const tags of [null,'город',[42],['x'.repeat(41)],Array(21).fill('город')]) {
+  const invalid=structuredClone(saved);invalid.books[0].notes[0].tags=tags;
+  assert.equal((await s.call('/api/library',{...user,method:'PUT',body:{revision:1,library:invalid}})).status,400);
+ }
+ assert.deepEqual((await s.call('/api/library',user)).body.library,saved);
+});
+
+test('Book parts and chapter membership persist and invalid links cannot replace stored data', async t => {
+ const s=setup(t), user=await register(s), library=populated();
+ const book=library.books[0];book.sections=[{id:'part-one',title:'Часть I'}];book.chapters[0].sectionId='part-one';
+ assert.equal((await s.call('/api/library',{...user,method:'PUT',body:{revision:0,library}})).status,200);
+ s.restart();assert.deepEqual((await s.call('/api/library',user)).body.library,library);
+ const invalid=structuredClone(library);invalid.books[0].sections=[];
+ assert.equal((await s.call('/api/library',{...user,method:'PUT',body:{revision:1,library:invalid}})).status,400);
+ assert.deepEqual((await s.call('/api/library',user)).body.library,library);
+});

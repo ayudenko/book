@@ -1,4 +1,4 @@
-import { validLibrary } from '../dist/model.js';
+import { validLibrary, normalizeTags } from '../dist/model.js';
 const string = (value, max) => typeof value === 'string' && value.length <= max;
 const id = value => string(value, 128) && value.length > 0;
 export function validateLibrary(value) {
@@ -16,10 +16,11 @@ export function validateLibrary(value) {
 export function normalizeLibrary(value) {
   return {version: 2, activeBookId: value.activeBookId, books: value.books.map(b => ({
     version: 1, id: b.id, archived: b.archived, title: b.title, subtitle: 'Роман', goal: b.goal, activeId: b.activeId,
+    ...(b.sections !== undefined ? {sections:b.sections.map(section => ({id:section.id,title:section.title}))} : {}),
     ...(b.outline ? {outline: {mode: b.outline.mode, summary: b.outline.summary, items: b.outline.items.map(i => ({id:i.id,title:i.title,body:i.body,chapterId:i.chapterId}))}} : {}),
-    chapters: b.chapters.map(c => ({id: c.id, title: c.title, html: c.html,
+    chapters: b.chapters.map(c => ({id: c.id, title: c.title, html: c.html, ...(c.sectionId !== undefined ? {sectionId:c.sectionId} : {}),
       history: c.history.map(h => ({id: h.id, at: h.at, title: h.title, html: h.html, label: h.label}))})),
-    notes: b.notes.map(n => ({id: n.id, kind: n.kind, title: n.title, body: n.body, quote: n.quote, ...(n.html !== undefined ? {html: n.html} : {}),
+    notes: b.notes.map(n => ({id: n.id, kind: n.kind, title: n.title, body: n.body, quote: n.quote, ...(n.tags !== undefined ? {tags: normalizeTags(n.tags)} : {}), ...(n.html !== undefined ? {html: n.html} : {}),
       chapterId: n.chapterId, ...(n.kind === 'location' ? {locationType: n.locationType} : {})}))
   }))};
 }
